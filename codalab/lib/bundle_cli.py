@@ -1335,6 +1335,54 @@ class BundleCLI(object):
                 print >>self.stdout, uuid
 
     @Commands.command(
+        'ancestors',
+        help='Prints out all ancestors of this bundle',
+        arguments=(
+            Commands.Argument('bundle_spec', help=BUNDLE_SPEC_FORMAT, nargs="+", completer=BundlesCompleter),
+            Commands.Argument('-w', '--worksheet-spec', help='Operate on this worksheet (%s).' % WORKSHEET_SPEC_FORMAT, completer=WorksheetsCompleter),
+        ),
+    )
+    def do_ancestors_command(self, args):
+        args.bundle_spec = spec_util.expand_specs(args.bundle_spec)
+        client, worksheet_uuid = self.parse_client_worksheet_uuid(args.worksheet_spec)
+
+        try:
+            bundle = client.fetch('bundles', params={
+                'specs': args.bundle_spec,
+            })[0]
+        except NotFoundError as e:
+            bundle_exists = False
+        else:
+            bundle_exists = True
+
+        if not bundle_exists:
+            raise NotFoundError('Bundle %s' % args.bundle_spec[0])
+
+        nested_level = 0
+        self.recursively_print_ancestors(client, bundle, nested_level)
+
+    def print_ancestor_line(self, bundle, nested_level):
+        result = ' ' * (2*nested_level)
+        result += '- '+ bundle['metadata']['name']
+        result += '(' + worksheet_util.apply_func(UUID_POST_FUNC, bundle['uuid']) + ')'
+        print result
+
+    def recursively_print_ancestors(self, client, bundle, nested_level):
+        self.print_ancestor_line(bundle, nested_level)
+        for dependant_bundle in bundle['dependencies']:
+            try:
+                complete_dependant_bundle = client.fetch('bundles', params={
+                    'specs': dependant_bundle['parent_uuid'],
+                })[0]
+            except NotFoundError as e:
+                bundle_exists = False
+            else:
+                bundle_exists = True
+
+            if bundle_exists:
+                self.recursively_print_ancestors(client, complete_dependant_bundle, nested_level + 1)
+
+    @Commands.command(
         'search',
         aliases=('s',),
         help=[
